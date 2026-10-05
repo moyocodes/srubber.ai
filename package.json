@@ -1,0 +1,14 @@
+{
+  "name": "scrubber-ai",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node test/credits.test.mjs",
+    "check": "node --check api/_lib.js && node --check api/account.js && node --check api/suggest.js && node --check api/rephrase.js && node --check api/pay/_paystack.js && node --check api/pay/start.js && node --check api/pay/verify.js && node --check api/pay/webhook.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "zod": "^3.25.0"
+  }
+}

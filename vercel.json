@@ -1,0 +1,6 @@
+{
+  "functions": {
+    "api/rephrase.js": { "maxDuration": 120 },
+    "api/suggest.js": { "maxDuration": 120 }
+  }
+}
