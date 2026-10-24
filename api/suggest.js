@@ -1,8 +1,8 @@
-// POST /api/suggest {wallet, text, goal} -> {suggestions: [{original, suggestion, why}], account}
-// The first FREE_SUGGESTIONS uses per wallet are free; after that each use costs one credit.
-import { z } from "zod";
+// POST /api/suggest {wallet, text, goal} -> {suggestions: [{original, suggestion, why}], charged, account}
+// Costs CONFIG.costs.suggest credits: free credits first, then paid ones.
+import { z } from "zod/v4";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { send, readJson, validWallet, clientIp, charge, refund, getAccount, anthropic, aiErrorMessage, CONFIG, GOALS, KEEP_RULES } from "./_lib.js";
+import { send, readJson, validWallet, clientIp, charge, refund, getAccount, anthropic, aiErrorMessage, creditCost, logUsage, CONFIG, GOALS, KEEP_RULES } from "./_lib.js";
 
 const Suggestions = z.object({
   suggestions: z.array(z.object({
@@ -28,7 +28,7 @@ export default async function handler(req, res) {
 
   let kind;
   try {
-    kind = await charge(wallet, clientIp(req), { allowFree: true });
+    kind = await charge(wallet, clientIp(req), creditCost("suggest", text));
   } catch (err) {
     console.error(err);
     return send(res, 500, { error: "server", message: "Could not check your balance. Try again." });
@@ -43,6 +43,7 @@ export default async function handler(req, res) {
       system: SYSTEM,
       messages: [{ role: "user", content: `Goal: ${GOALS[goal] || GOALS.natural}\n\n<text>\n${text}\n</text>` }],
     });
+    logUsage("suggest", text, response.usage);
     if (response.stop_reason === "refusal" || !response.parsed_output) {
       await refund(wallet, kind);
       return send(res, 422, { error: "refused", message: "The AI could not review this text. Try editing it first." });

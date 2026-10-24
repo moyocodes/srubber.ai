@@ -1,5 +1,6 @@
-// POST /api/rephrase {wallet, text, goal} -> {text, account}. Paid: each use costs one credit.
-import { send, readJson, validWallet, clientIp, charge, refund, getAccount, anthropic, aiErrorMessage, CONFIG, GOALS, KEEP_RULES } from "./_lib.js";
+// POST /api/rephrase {wallet, text, goal} -> {text, charged, account}
+// Costs CONFIG.costs.rephrase credits, or rephraseLong for long texts: free credits first, then paid ones.
+import { send, readJson, validWallet, clientIp, charge, refund, getAccount, anthropic, aiErrorMessage, creditCost, logUsage, CONFIG, GOALS, KEEP_RULES } from "./_lib.js";
 
 const SYSTEM = [
   "You rewrite the writer's draft in their own voice according to the goal you are given.",
@@ -17,7 +18,7 @@ export default async function handler(req, res) {
 
   let kind;
   try {
-    kind = await charge(wallet, clientIp(req), { allowFree: false });
+    kind = await charge(wallet, clientIp(req), creditCost("rephrase", text));
   } catch (err) {
     console.error(err);
     return send(res, 500, { error: "server", message: "Could not check your balance. Try again." });
@@ -35,12 +36,13 @@ export default async function handler(req, res) {
       system: SYSTEM,
       messages: [{ role: "user", content: `Goal: ${GOALS[goal] || GOALS.natural}\n\n<text>\n${text}\n</text>` }],
     });
+    logUsage("rephrase", text, response.usage);
     const out = response.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
     if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens" || !out) {
       await refund(wallet, kind);
       return send(res, 422, { error: "refused", message: "The AI could not rewrite this text. You were not charged." });
     }
-    send(res, 200, { text: out, account: await getAccount(wallet) });
+    send(res, 200, { text: out, charged: kind, account: await getAccount(wallet) });
   } catch (err) {
     console.error(err);
     await refund(wallet, kind).catch(() => {});

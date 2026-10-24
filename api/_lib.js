@@ -3,12 +3,28 @@ import Anthropic from "@anthropic-ai/sdk";
 
 export const CONFIG = {
   model: process.env.CLAUDE_MODEL || "claude-opus-5-5",
-  freeSuggestions: Number(process.env.FREE_SUGGESTIONS || 2),
-  freePerIpPerDay: Number(process.env.FREE_PER_IP_PER_DAY || 10),
-  priceNgn: Number(process.env.PRICE_NGN || 500),
-  packUses: Number(process.env.PACK_USES || 10),
+  freeUses: Number(process.env.FREE_USES || 20), // starter credits per wallet, good for any AI action
+  freePerIpPerDay: Number(process.env.FREE_PER_IP_PER_DAY || 40),
+  priceNgn: Number(process.env.PRICE_NGN || 1500),
+  packUses: Number(process.env.PACK_USES || 20), // ₦75 a credit
   maxChars: 9000, // about 1,500 words per request
+  // Credits per action, set so a typical call keeps 55%+ margin over Claude Opus 5.5 at $4/$20 per MTok.
+  // Rephrase writes the whole text back, so long texts cost more output tokens and an extra credit.
+  costs: { suggest: 2, rephrase: 2, rephraseLong: 3, longWords: 750 },
 };
+
+// Credits an action will take for this text. The browser shows the same numbers from account.costs.
+export function creditCost(kind, text) {
+  const words = text.trim().split(/\s+/).length;
+  if (kind === "rephrase") return words > CONFIG.costs.longWords ? CONFIG.costs.rephraseLong : CONFIG.costs.rephrase;
+  return CONFIG.costs.suggest;
+}
+
+// Token use and what it cost us, in the Vercel logs, to check the credit prices against real calls
+export function logUsage(kind, text, usage) {
+  const usd = (usage.input_tokens * 4 + (usage.cache_read_input_tokens || 0) * 0.4 + usage.output_tokens * 20) / 1e6;
+  console.log(JSON.stringify({ usage: kind, model: CONFIG.model, words: text.trim().split(/\s+/).length, in: usage.input_tokens, out: usage.output_tokens, usd: +usd.toFixed(5) }));
+}
 
 // ---------- HTTP helpers ----------
 
@@ -58,42 +74,51 @@ export async function redis(...command) {
   return data.result;
 }
 
-// Decrement a counter only if it is above zero. Returns the new value, or -1 when empty.
-const SPEND = "local v = tonumber(redis.call('GET', KEYS[1]) or '0') if v > 0 then return redis.call('DECR', KEYS[1]) end return -1";
-// Increment a usage counter only while it is below the limit. Returns 1 if used, 0 if the limit is reached.
-const USE_FREE = "local v = tonumber(redis.call('GET', KEYS[1]) or '0') if v < tonumber(ARGV[1]) then redis.call('INCR', KEYS[1]) if ARGV[2] ~= '0' then redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 1 end return 0";
+// Spend `cost` credits in one atomic step: free ones first (capped per wallet and per IP a day), the rest from
+// paid credits. KEYS: free used, paid balance, IP used today. ARGV: cost, wallet cap, IP cap, IP key TTL.
+// Returns {free, paid} taken, or {-1, -1} when the two together do not cover the cost.
+const SPEND = `local cost = tonumber(ARGV[1])
+local used = tonumber(redis.call('GET', KEYS[1]) or '0')
+local paid = tonumber(redis.call('GET', KEYS[2]) or '0')
+local ip = tonumber(redis.call('GET', KEYS[3]) or '0')
+local free = math.min(cost, math.max(0, math.min(tonumber(ARGV[2]) - used, tonumber(ARGV[3]) - ip)))
+local rest = cost - free
+if rest > paid then return {-1, -1} end
+if free > 0 then redis.call('INCRBY', KEYS[1], free) redis.call('EXPIRE', KEYS[1], 3456000) redis.call('INCRBY', KEYS[3], free) redis.call('EXPIRE', KEYS[3], ARGV[4]) end
+if rest > 0 then redis.call('DECRBY', KEYS[2], rest) end
+return {free, rest}`;
+
+// Free credits refill every month: the counter is keyed by UTC month and expires after it is over.
+const month = () => new Date().toISOString().slice(0, 7);
+const freeKey = (wallet) => `free:${wallet}:${month()}`;
+const nextReset = () => { const d = new Date(); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString().slice(0, 10); };
 
 export async function getAccount(wallet) {
-  const [credits, used] = await Promise.all([redis("GET", `credits:${wallet}`), redis("GET", `free:${wallet}`)]);
+  const [credits, used] = await Promise.all([redis("GET", `credits:${wallet}`), redis("GET", freeKey(wallet))]);
   return {
     credits: Number(credits || 0),
-    freeSuggestionsLeft: Math.max(0, CONFIG.freeSuggestions - Number(used || 0)),
+    freeLeft: Math.max(0, CONFIG.freeUses - Number(used || 0)),
+    freeTotal: CONFIG.freeUses,
+    freeResetsOn: nextReset(),
     priceNgn: CONFIG.priceNgn,
     packUses: CONFIG.packUses,
+    costs: CONFIG.costs,
   };
 }
 
-// Charge one use. Free suggestions are spent first (per wallet, plus a per-IP daily cap so
-// clearing browser storage does not mint endless free uses), then paid credits.
-// Returns "free", "credit", or null when the user has to pay.
-export async function charge(wallet, ip, { allowFree }) {
-  if (allowFree) {
-    const day = new Date().toISOString().slice(0, 10);
-    const ipOk = await redis("EVAL", USE_FREE, 1, `freeip:${ip}:${day}`, CONFIG.freePerIpPerDay, 172800);
-    if (ipOk === 1) {
-      const walletOk = await redis("EVAL", USE_FREE, 1, `free:${wallet}`, CONFIG.freeSuggestions, 0);
-      if (walletOk === 1) return "free";
-      await redis("DECR", `freeip:${ip}:${day}`);
-    }
-  }
-  const left = await redis("EVAL", SPEND, 1, `credits:${wallet}`);
-  return left >= 0 ? "credit" : null;
+// Charge `cost` credits for an AI action. Free credits are spent first (per wallet, plus a per-IP daily cap so
+// clearing browser storage does not mint endless free ones), then paid credits.
+// Returns {free, paid} as taken, or null when the user has to pay.
+export async function charge(wallet, ip, cost = 1) {
+  const day = new Date().toISOString().slice(0, 10);
+  const [free, paid] = await redis("EVAL", SPEND, 3, freeKey(wallet), `credits:${wallet}`, `freeip:${ip}:${day}`, cost, CONFIG.freeUses, CONFIG.freePerIpPerDay, 172800);
+  return free < 0 ? null : { free, paid };
 }
 
-// Give a use back when the AI call fails, so people never pay for an error.
-export async function refund(wallet, kind) {
-  if (kind === "free") await redis("DECR", `free:${wallet}`);
-  if (kind === "credit") await redis("INCR", `credits:${wallet}`);
+// Give the credits back when the AI call fails, so people never pay for an error.
+export async function refund(wallet, charged) {
+  if (charged.free) await redis("DECRBY", freeKey(wallet), charged.free);
+  if (charged.paid) await redis("INCRBY", `credits:${wallet}`, charged.paid);
 }
 
 // Add a pack of credits for a Paystack reference exactly once, however many times it is reported.

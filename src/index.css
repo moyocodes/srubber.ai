@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+/* Map Tailwind's dark: variant to this app's [data-theme="dark"] toggle, so dark:… utilities work in the JSX. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+  Dark first, near-black with a green cast and paper-white ink. Six accents spaced around the colour wheel,
+  one per kind of thing the cleaner finds; each has a bright tone and a deep tint (-bg) for chip fills.
+*/
+:root, :root[data-theme="dark"] {
+  --bg: #050807; --surface: #0a0f0e; --raised: #121917; --fg: #f3f1ea; --muted: #959c98; --line: #1d2523;
+  --accent: #f3f1ea; --accent-fg: #050807; --brand: #5fe0b7;
+  --invisible: #ffb35c; --invisible-bg: #3d2408;
+  --bidi: #ff7eb6; --bidi-bg: #45132b;
+  --space: #6aa8ff; --space-bg: #12284d;
+  --homo: #a98bff; --homo-bg: #2a1c58;
+  --stem: #f4e36b; --stem-bg: #3b350c;
+  --ok: #5fe0b7;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #f6f4ee; --surface: #ffffff; --raised: #efede6; --fg: #14181a; --muted: #5f6663; --line: #e2dfd6;
+  --accent: #14181a; --accent-fg: #f6f4ee; --brand: #0d9a74;
+  --invisible: #c46406; --invisible-bg: #fde6cc;
+  --bidi: #d63b82; --bidi-bg: #fbdcea;
+  --space: #2c68d8; --space-bg: #dce7fb;
+  --homo: #7650e0; --homo-bg: #e7dffc;
+  --stem: #8a7300; --stem-bg: #f6efc2;
+  --ok: #0d9a74;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-bg: var(--bg); --color-surface: var(--surface); --color-raised: var(--raised); --color-fg: var(--fg); --color-muted: var(--muted); --color-line: var(--line);
+  --color-accent: var(--accent); --color-accent-fg: var(--accent-fg); --color-brand: var(--brand);
+  --color-invisible: var(--invisible); --color-invisible-bg: var(--invisible-bg);
+  --color-bidi: var(--bidi); --color-bidi-bg: var(--bidi-bg);
+  --color-space: var(--space); --color-space-bg: var(--space-bg);
+  --color-homo: var(--homo); --color-homo-bg: var(--homo-bg);
+  --color-stem: var(--stem); --color-stem-bg: var(--stem-bg);
+  --color-ok: var(--ok);
+  --font-sans: "Inter Tight", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Instrument Serif", ui-serif, Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+@layer base {
+  /* scroll-behavior + the overflow-x guard live here because they target html/body, which have no
+     JSX element to carry Tailwind classes. Everything that CAN be a utility now lives in the JSX. */
+  html { background: var(--bg); scroll-behavior: smooth; }
+  html, body { overflow-x: clip; max-width: 100%; }
+  /* No body background: it would paint over the fixed 3D scene and backdrop, which sit at negative z-index */
+  body { @apply font-sans text-[15px] leading-relaxed text-fg antialiased; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  /* Element-type selectors: these target tags the markup generates in bulk (every diff <del>/<ins>,
+     every textarea), so a utility class per element is impractical — base styles are the Tailwind way here. */
+  ::selection { background: var(--brand); color: var(--accent-fg); }
+  button:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible, input:focus-visible, a:focus-visible, [role="tab"]:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  del { @apply rounded bg-invisible-bg px-0.5 text-invisible line-through; }
+  ins { @apply rounded bg-space-bg px-0.5 text-space no-underline; }
+  textarea { field-sizing: content; }
+}
+
+/* The composer picks up a slowly turning ring of the wheel while you type in it */
+@property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.glow-ring { position: relative; isolation: isolate; }
+.glow-ring::before {
+  content: ""; position: absolute; inset: -1px; z-index: -1; border-radius: inherit; opacity: 0; transition: opacity .4s;
+  background: conic-gradient(from var(--spin), var(--brand), var(--space), var(--homo), var(--bidi), var(--invisible), var(--stem), var(--brand));
+  animation: spin-ring 6s linear infinite;
+}
+.glow-ring::after { content: ""; position: absolute; inset: -1px; z-index: -2; border-radius: inherit; background: inherit; filter: blur(18px); opacity: 0; transition: opacity .4s; }
+.glow-ring:focus-within::before { opacity: 1; }
+/* The spotlighted side of the conversation: the inactive side scales down and fades in the markup above,
+   so this only needs to lift the active one slightly and keep its ring lit even without focus. */
+.glow-ring.is-spotlight::before { opacity: 1; }
+.glow-ring.is-spotlight { filter: drop-shadow(0 12px 28px color-mix(in oklab, var(--brand) 14%, transparent)); }
+@keyframes spin-ring { to { --spin: 360deg; } }
+@media (prefers-reduced-motion: reduce) { .glow-ring::before { animation: none; } }
+
+/* Keep the reading column clear: the galaxy only shows in the gutters and fades out behind the text.
+   Only the mask gradient stays here (no Tailwind utility for mask-image); its opacity is set in the JSX. */
+.scene-mask { -webkit-mask-image: linear-gradient(90deg, #000 0%, rgb(0 0 0 / .5) 22%, transparent 36%, transparent 64%, rgb(0 0 0 / .5) 78%, #000 100%); mask-image: linear-gradient(90deg, #000 0%, rgb(0 0 0 / .5) 22%, transparent 36%, transparent 64%, rgb(0 0 0 / .5) 78%, #000 100%); }
+
+/* A faint wash of the wheel behind the page, strongest at the top */
+.backdrop {
+  position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(60% 40% at 15% -5%, color-mix(in oklab, var(--brand) 16%, transparent), transparent 70%),
+    radial-gradient(50% 35% at 90% 0%, color-mix(in oklab, var(--homo) 14%, transparent), transparent 70%),
+    radial-gradient(40% 30% at 60% -10%, color-mix(in oklab, var(--space) 10%, transparent), transparent 70%);
+}

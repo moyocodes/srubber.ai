@@ -2,13 +2,30 @@
   "name": "scrubber-ai",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "test": "node test/credits.test.mjs",
-    "check": "node --check api/_lib.js && node --check api/account.js && node --check api/suggest.js && node --check api/rephrase.js && node --check api/pay/_paystack.js && node --check api/pay/start.js && node --check api/pay/verify.js && node --check api/pay/webhook.js"
+    "test": "node test/credits.test.mjs && node test/text.test.mjs",
+    "check": "node --check api/_lib.js && node --check api/account.js && node --check api/suggest.js && node --check api/rephrase.js && node --check api/pay/_paystack.js && node --check api/pay/start.js && node --check api/pay/verify.js && node --check api/pay/webhook.js",
+    "dev": "vite",
+    "dev:api": "vercel dev",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
+    "@react-three/fiber": "^9.8.2",
+    "framer-motion": "^14.0.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "three": "^0.186.1",
     "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.2",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.2"
   }
 }

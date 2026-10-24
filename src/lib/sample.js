@@ -1,0 +1,2 @@
+// Example draft with hidden characters baked in (zero-width, direction marks, look-alike letters)
+export const SAMPLE = 'Dear Hiring Manager,\n\nI’m excited to apply for the **Marketing Associate** role at Northwind.​ Over the past two years I’ve led campaigns that grew our newsletter from 2,000 to 11,000 readers — and I’d love to bring that energy to your team.‍\n\nMy experience with “data‑driven” storytelling, combined with a strong eye for design, makes me a greаt fit.‎ I look forward to speaking with you.﻿\n\nBest regards,\nJordan';

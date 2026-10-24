@@ -1,4 +1,4 @@
-// GET /api/account?wallet=<id> -> free suggestions left, paid credits, price
+// GET /api/account?wallet=<id> -> free uses left, paid credits, price
 import { send, validWallet, getAccount } from "./_lib.js";
 
 export default async function handler(req, res) {
